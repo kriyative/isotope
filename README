@@ -1,0 +1,13 @@
+# isotope
+
+A pluggable trace facility for Clojure.
+
+## Usage
+
+FIXME: write
+
+## License
+
+Copyright (C) 2012 Ram Krishnan
+
+Distributed under the Eclipse Public License, the same as Clojure.
