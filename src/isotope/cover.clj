@@ -174,8 +174,8 @@
        [:p (or footer "")]]])))
 
 (defn report [& {:keys [type output]}]
-  (let [reporters #{:html html-report
-                    :text text-report}
+  (let [reporters {:html html-report
+                   :text text-report}
         result ((or (reporters type)
                     (if (fn? type) type)
                     text-report)
