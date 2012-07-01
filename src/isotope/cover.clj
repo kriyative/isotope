@@ -173,7 +173,17 @@
          ~(html-report-coverage-summary summary)]
        [:p (or footer "")]]])))
 
-(defn report [& [reporter]] ((or reporter text-report) @*trace-stats*))
+(defn report [& {:keys [type output]}]
+  (let [reporters #{:html html-report
+                    :text text-report}
+        result ((or (reporters type)
+                    (if (fn? type) type)
+                    text-report)
+                @*trace-stats*)]
+    (cond
+      (string? output) (spit output result)
+      (fn? output) (output result)
+      :else result)))
 
 (defn begin [include-ns-re & [exclude-ns-re]]
   (core/trace-matching include-ns-re exclude-ns-re)
@@ -186,7 +196,7 @@
      (try
        (core/add-tracer coverage-tracer)
        (let [val# (do ~@body)]
-         (report ~reporter)
+         (report :type ~reporter)
          val#)
        (finally
          (core/remove-tracer coverage-tracer)))))
