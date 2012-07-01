@@ -1,14 +1,18 @@
 (ns isotope.cover
   "A minimal code coverage facility"
   (:require
+   [clojure.java.io :as jio]
    [clojure.set :as set]
    [clojure.string :as string]
    [hiccup.core :as h]
-   [isotope.core :as core]))
+   [isotope.core :as core])
+  (:import
+   java.util.Date
+   clojure.lang.Var))
 
-(def ^{:dynamic true} *trace-stats* (atom {}))
+(defonce ^{:dynamic true} *trace-stats* (atom {}))
 
-(defn coverage-tracer [v args]
+(defn coverage-tracer [^Var v args]
   (let [the-ns (ns-name (.ns v))
         fname (core/sym-with-ns v)
         ns-map (or (get @*trace-stats* the-ns) {})]
@@ -91,8 +95,11 @@
          .unevaluated-fns { margin-top: 1em; }"]
    [:script {:src "http://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"}]
    [:script {:type "text/javascript"}
+    (slurp (jio/reader (jio/resource "jquery.tablesorter.min.js")))]
+   [:script {:type "text/javascript"}
     (string/join "\n"
                  ["$(document).ready(function () {"
+                  "  $('#report').tablesorter();"
                   "  $('tr').click(function (e) {"
                   "    $(this).find('.detail').toggle();"
                   "  });"
@@ -106,69 +113,83 @@
     :else "indicator peace"))
 
 (defn html-report-namespace-summary [summary]
-  (vec
-   (map (fn [[the-ns ns-summary]]
-          (let [stats (:stats ns-summary)
-                evaluated-fns-count (count stats)
-                unevaluated-fns (:unevaluated-fns ns-summary)
-                fns-count (:fns-count ns-summary)
-                coverage (double (/ evaluated-fns-count fns-count))]
-            [:tr {:valign :top}
-             [:td {:class (html-report-coverage-indicator-class coverage) :width "10"}]
-             [:td {:class :description}
-              (str the-ns)
-              [:div {:class :detail}
-               (concat
-                [[:ul {:class :evaluated-fns}]]
-                (vec
-                 (map (fn [[f c]] [:li (str (name f) " (" c ")")])
-                      (sort-by second > stats))))
-               (when (not-empty unevaluated-fns)
-                 [:div {:class :unevaluated-fns}
-                  [:div [:b "unevaluated functions:"]]
-                  (string/join ", " (sort (map name unevaluated-fns)))])]]
-             [:td {:class "narrow right"} (str (int (* 100 coverage)) "%")]
-             [:td {:class "narrow right"}
-              (str evaluated-fns-count "/" fns-count)]]))
-        summary)))
+  (concat
+   [[:thead
+     [:tr
+      [:th ""]
+      [:th "namespace"]
+      [:th "coverage"]
+      [:th "eval/uneval"]]]]
+   [(conj [:tbody]
+          (map (fn [[the-ns ns-summary]]
+                 (let [stats (:stats ns-summary)
+                       evaluated-fns-count (count stats)
+                       unevaluated-fns (:unevaluated-fns ns-summary)
+                       fns-count (:fns-count ns-summary)
+                       coverage (double (/ evaluated-fns-count fns-count))]
+                   [:tr {:valign :top}
+                    [:td {:class (html-report-coverage-indicator-class coverage)
+                          :width "10"}]
+                    [:td {:class :description}
+                     (str the-ns)
+                     [:div {:class :detail}
+                      (concat
+                       [[:ul {:class :evaluated-fns}]]
+                       (vec
+                        (map (fn [[f c]] [:li (str (name f) " (" c ")")])
+                             (sort-by second > stats))))
+                      (when (not-empty unevaluated-fns)
+                        [:div {:class :unevaluated-fns}
+                         [:div [:b "unevaluated functions:"]]
+                         (string/join ", " (sort (map name unevaluated-fns)))])]]
+                    [:td {:class "narrow right"} (str (int (* 100 coverage)) "%")]
+                    [:td {:class "narrow right"}
+                     (str evaluated-fns-count "/" fns-count)]]))
+               summary))]))
 
 (defn html-report-coverage-summary [summary]
   (let [total-fns-count (reduce + 0 (map #(:fns-count (second %)) summary))
         evaluated-fns-count (reduce + 0
                                     (map #(count (:stats (second %))) summary))
         coverage (/ evaluated-fns-count total-fns-count)]
-    [:tr {:valign :top}
-     [:td {:class (html-report-coverage-indicator-class coverage)}]
-     [:td "Overall coverage"]
-     [:td {:class "narrow right"} (str (int (* 100 coverage)) "%")]
-     [:td {:class "narrow right"}
-      (str evaluated-fns-count "/" total-fns-count)]]))
+    [:tfoot
+     [:tr {:valign :top}
+      [:td {:class (html-report-coverage-indicator-class coverage)}]
+      [:td "Overall coverage"]
+      [:td {:class "narrow right"} (str (int (* 100 coverage)) "%")]
+      [:td {:class "narrow right"}
+       (str evaluated-fns-count "/" total-fns-count)]]]))
 
-(defn html-report [stats]
+(defn html-report [stats & {:keys [title subtitle footer]}]
   (let [summary (summarize stats)]
     (h/html
      [:html
       (html-report-head)
       [:body
-       `[:table {:cellspacing 0 :width "100%"}
+       [:h1 (or title "isotope coverage report")]
+       [:h2 (or subtitle (str (Date.)))]
+       `[:table {:class "tablesorter" :id "report" :cellspacing 0 :width "100%"}
          ~@(html-report-namespace-summary summary)
-         ~(html-report-coverage-summary summary)]]])))
+         ~(html-report-coverage-summary summary)]
+       [:p (or footer "")]]])))
 
-(def ^{:dynamic true} *trace-reporter* nil)
+(defn report [& [reporter]] ((or reporter text-report) @*trace-stats*))
 
-(defn trace-report [] ((or *trace-reporter* text-report) @*trace-stats*))
+(defn begin [include-ns-re & [exclude-ns-re]]
+  (core/trace-matching include-ns-re exclude-ns-re)
+  (core/add-tracer coverage-tracer))
+
+(defn end [] (core/remove-tracer coverage-tracer))
 
 (defmacro with-coverage [{:keys [reporter]} & body]
-  `(binding [*trace-stats* (atom {})
-             *trace-reporter* ~reporter]
+  `(binding [*trace-stats* (atom {})]
      (try
        (core/add-tracer coverage-tracer)
        (let [val# (do ~@body)]
-         (trace-report)
+         (trace-report ~reporter)
          val#)
-       (catch Exception ex#
-         (core/remove-tracer coverage-tracer)
-         (throw ex#)))))
+       (finally
+         (core/remove-tracer coverage-tracer)))))
 
 (defmacro do-coverage [& body]
   `(binding [*trace-stats* (atom {})]
