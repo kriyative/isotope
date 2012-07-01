@@ -82,3 +82,11 @@
   "Untrace all the top level functions in specified namespace."
   [the-ns]
   (doseq [v (ns-vars the-ns)] (untrace v)))
+
+(defn trace-matching [include-re & [exclude-re]]
+  (doseq [the-ns (filter #(let [the-ns-name (str (ns-name %))]
+                            (and (re-find include-re the-ns-name)
+                                 (not (and exclude-re
+                                           (re-find exclude-re the-ns-name)))))
+                         (all-ns))]
+    (trace-ns the-ns)))
