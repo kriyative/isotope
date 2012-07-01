@@ -186,7 +186,7 @@
      (try
        (core/add-tracer coverage-tracer)
        (let [val# (do ~@body)]
-         (trace-report ~reporter)
+         (report ~reporter)
          val#)
        (finally
          (core/remove-tracer coverage-tracer)))))
